@@ -265,39 +265,69 @@ static void drawCamera(qreal scale) {
   const qreal arrowHalfWidth = 0.5 * halfWidth;
   const qreal baseHalfWidth = 0.3 * halfWidth;
 
-  // Frustum outline
+  // Frustum outline - two GL_LINE_STRIP paths
+  // (glBegin/glEnd removed for Apple GL 2.1 Metal / arm64 compatibility)
   glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-  glBegin(GL_LINE_STRIP);
-  glVertex3d(-halfWidth, halfHeight, -dist);
-  glVertex3d(-halfWidth, -halfHeight, -dist);
-  glVertex3d(0.0, 0.0, 0.0);
-  glVertex3d(halfWidth, -halfHeight, -dist);
-  glVertex3d(-halfWidth, -halfHeight, -dist);
-  glEnd();
-  glBegin(GL_LINE_STRIP);
-  glVertex3d(halfWidth, -halfHeight, -dist);
-  glVertex3d(halfWidth, halfHeight, -dist);
-  glVertex3d(0.0, 0.0, 0.0);
-  glVertex3d(-halfWidth, halfHeight, -dist);
-  glVertex3d(halfWidth, halfHeight, -dist);
-  glEnd();
+  {
+    GLfloat verts[15] = {
+      (GLfloat)-halfWidth, (GLfloat) halfHeight, (GLfloat)-dist,
+      (GLfloat)-halfWidth, (GLfloat)-halfHeight, (GLfloat)-dist,
+      0.0f,                0.0f,                 0.0f,
+      (GLfloat) halfWidth, (GLfloat)-halfHeight, (GLfloat)-dist,
+      (GLfloat)-halfWidth, (GLfloat)-halfHeight, (GLfloat)-dist,
+    };
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, verts);
+    glDrawArrays(GL_LINE_STRIP, 0, 5);
+    glDisableClientState(GL_VERTEX_ARRAY);
+  }
+  {
+    GLfloat verts[15] = {
+      (GLfloat) halfWidth, (GLfloat)-halfHeight, (GLfloat)-dist,
+      (GLfloat) halfWidth, (GLfloat) halfHeight, (GLfloat)-dist,
+      0.0f,                0.0f,                 0.0f,
+      (GLfloat)-halfWidth, (GLfloat) halfHeight, (GLfloat)-dist,
+      (GLfloat) halfWidth, (GLfloat) halfHeight, (GLfloat)-dist,
+    };
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, verts);
+    glDrawArrays(GL_LINE_STRIP, 0, 5);
+    glDisableClientState(GL_VERTEX_ARRAY);
+  }
 
   // Up arrow
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-  // Base
-  glBegin(GL_QUADS);
-  glVertex3d(-baseHalfWidth, halfHeight, -dist);
-  glVertex3d(baseHalfWidth, halfHeight, -dist);
-  glVertex3d(baseHalfWidth, baseHeight, -dist);
-  glVertex3d(-baseHalfWidth, baseHeight, -dist);
-  glEnd();
 
-  // Arrow
-  glBegin(GL_TRIANGLES);
-  glVertex3d(0.0, arrowHeight, -dist);
-  glVertex3d(-arrowHalfWidth, baseHeight, -dist);
-  glVertex3d(arrowHalfWidth, baseHeight, -dist);
-  glEnd();
+  // Base (quad -> 2 triangles)
+  {
+    GLfloat verts[18] = {
+      // Triangle 1
+      (GLfloat)-baseHalfWidth, (GLfloat) halfHeight,  (GLfloat)-dist,
+      (GLfloat) baseHalfWidth, (GLfloat) halfHeight,  (GLfloat)-dist,
+      (GLfloat) baseHalfWidth, (GLfloat) baseHeight,  (GLfloat)-dist,
+      // Triangle 2
+      (GLfloat)-baseHalfWidth, (GLfloat) halfHeight,  (GLfloat)-dist,
+      (GLfloat) baseHalfWidth, (GLfloat) baseHeight,  (GLfloat)-dist,
+      (GLfloat)-baseHalfWidth, (GLfloat) baseHeight,  (GLfloat)-dist,
+    };
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, verts);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glDisableClientState(GL_VERTEX_ARRAY);
+  }
+
+  // Arrow head (triangle)
+  {
+    GLfloat verts[9] = {
+      0.0f,                     (GLfloat) arrowHeight, (GLfloat)-dist,
+      (GLfloat)-arrowHalfWidth, (GLfloat) baseHeight,  (GLfloat)-dist,
+      (GLfloat) arrowHalfWidth, (GLfloat) baseHeight,  (GLfloat)-dist,
+    };
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, verts);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glDisableClientState(GL_VERTEX_ARRAY);
+  }
 }
 
 /*! Draws the path used to interpolate the frame().
@@ -361,8 +391,6 @@ void KeyFrameInterpolator::drawPath(int mask, int nbFrames, qreal scale) {
         Vec v1 = 3.0 * diff - 2.0 * kf_[1]->tgP() - kf_[2]->tgP();
         Vec v2 = -2.0 * diff + kf_[1]->tgP() + kf_[2]->tgP();
 
-        // cout << kf_[0]->time() << " , " << kf_[1]->time() << " , " <<
-        // kf_[2]->time() << " , " << kf_[3]->time() << endl;
         for (int step = 0; step < nbSteps; ++step) {
           qreal alpha = step / static_cast<qreal>(nbSteps);
           fr.setPosition(kf_[1]->position() +
@@ -391,10 +419,22 @@ void KeyFrameInterpolator::drawPath(int mask, int nbFrames, qreal scale) {
     glLineWidth(2);
 
     if (mask & 1) {
-      glBegin(GL_LINE_STRIP);
-      Q_FOREACH (Frame fr, path_)
-        glVertex3fv(fr.position());
-      glEnd();
+      // Draw path as GL_LINE_STRIP using vertex array
+      // (glBegin/glEnd removed for Apple GL 2.1 Metal / arm64 compatibility)
+      QVector<GLfloat> pathVerts;
+      pathVerts.reserve(path_.size() * 3);
+      Q_FOREACH (Frame fr, path_) {
+        Vec p = fr.position();
+        pathVerts.append((GLfloat)p.x);
+        pathVerts.append((GLfloat)p.y);
+        pathVerts.append((GLfloat)p.z);
+      }
+      if (!pathVerts.isEmpty()) {
+        glEnableClientState(GL_VERTEX_ARRAY);
+        glVertexPointer(3, GL_FLOAT, 0, pathVerts.constData());
+        glDrawArrays(GL_LINE_STRIP, 0, path_.size());
+        glDisableClientState(GL_VERTEX_ARRAY);
+      }
     }
     if (mask & 6) {
       int count = 0;
@@ -537,11 +577,6 @@ void KeyFrameInterpolator::updateCurrentKeyFrameForTime(qreal time) {
     currentFrameValid_ = true;
     splineCacheIsValid_ = false;
   }
-
-  // cout << "Time = " << time << " : " << currentFrame_[0]->peekNext()->time()
-  // << " , " << currentFrame_[1]->peekNext()->time() << " , " <<
-  // currentFrame_[2]->peekNext()->time() << " , " <<
-  // currentFrame_[3]->peekNext()->time() << endl;
 }
 
 void KeyFrameInterpolator::updateSplineCache() {
@@ -584,9 +619,6 @@ void KeyFrameInterpolator::interpolateAtTime(qreal time) {
   else
     alpha = (time - currentFrame_[1]->peekNext()->time()) / dt;
 
-  // Linear interpolation - debug
-  // Vec pos = alpha*(currentFrame_[2]->peekNext()->position()) +
-  // (1.0-alpha)*(currentFrame_[1]->peekNext()->position());
   Vec pos =
       currentFrame_[1]->peekNext()->position() +
       alpha * (currentFrame_[1]->peekNext()->tgP() + alpha * (v1 + alpha * v2));

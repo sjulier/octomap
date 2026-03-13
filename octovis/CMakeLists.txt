@@ -50,52 +50,7 @@ if(NOT TARGET octomap::octomap)
     find_package(octomap "${OCTOVIS_VERSION}" ${_required})
 endif()
 
-# On macOS, Apple's OpenGL framework omits legacy symbols (glBegin etc.) that
-# QGLViewer requires. If Mesa is available via Homebrew, use it instead.
-if(APPLE)
-    find_program(_BREW brew)
-    if(_BREW)
-        execute_process(
-            COMMAND ${_BREW} --prefix mesa
-            OUTPUT_VARIABLE MESA_PREFIX
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET
-        )
-        execute_process(
-            COMMAND ${_BREW} --prefix mesa-glu
-            OUTPUT_VARIABLE MESA_GLU_PREFIX
-            OUTPUT_STRIP_TRAILING_WHITESPACE
-            ERROR_QUIET
-        )
-    endif()
-    if(MESA_PREFIX AND EXISTS "${MESA_PREFIX}/lib/libGL.dylib")
-        message(STATUS "macOS: using Mesa GL from ${MESA_PREFIX}")
-        add_library(OpenGL::GL SHARED IMPORTED)
-        set_target_properties(
-            OpenGL::GL
-            PROPERTIES
-                IMPORTED_LOCATION "${MESA_PREFIX}/lib/libGL.dylib"
-                INTERFACE_INCLUDE_DIRECTORIES "${MESA_PREFIX}/include"
-        )
-        add_library(OpenGL::GLU SHARED IMPORTED)
-        set_target_properties(
-            OpenGL::GLU
-            PROPERTIES
-                IMPORTED_LOCATION "${MESA_GLU_PREFIX}/lib/libGLU.1.dylib"
-                INTERFACE_INCLUDE_DIRECTORIES "${MESA_GLU_PREFIX}/include"
-        )
-        set(OpenGL_FOUND TRUE)
-    else()
-        message(
-            WARNING
-                "macOS: Mesa not found via Homebrew, falling back to system "
-                "OpenGL (legacy GL symbols such as glBegin may be missing)"
-        )
-        find_package(OpenGL ${_required})
-    endif()
-else()
-    find_package(OpenGL ${_required})
-endif()
+find_package(OpenGL ${_required})
 
 set(OCTOVIS_FIND_DEPENDENCIES
     "include(CMakeFindDependencyMacro)\nfind_dependency(octomap ${OCTOVIS_VERSION})\nfind_dependency(OpenGL)\n"
@@ -239,15 +194,9 @@ else()
             OUTPUT_NAME "octovis_qglviewer"
             AUTOMOC ON
             AUTOUIC ON
+            INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}"
+            BUILD_WITH_INSTALL_RPATH TRUE
     )
-    if(APPLE AND MESA_PREFIX)
-        set_target_properties(
-            QGLViewer
-            PROPERTIES
-                INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR};${MESA_PREFIX}/lib;${MESA_GLU_PREFIX}/lib"
-                BUILD_WITH_INSTALL_RPATH TRUE
-        )
-    endif()
     install(
         DIRECTORY src/extern/QGLViewer/
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/octovis/qglviewer"
@@ -302,15 +251,9 @@ set_target_properties(
         AUTOMOC ON
         AUTOUIC ON
         AUTOGEN_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/octovis_autogen"
+        INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}"
+        BUILD_WITH_INSTALL_RPATH TRUE
 )
-if(APPLE AND MESA_PREFIX)
-    set_target_properties(
-        octovis
-        PROPERTIES
-            INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR};${MESA_PREFIX}/lib;${MESA_GLU_PREFIX}/lib"
-            BUILD_WITH_INSTALL_RPATH TRUE
-    )
-endif()
 add_library(octomap::octovis ALIAS octovis)
 
 # ── octovis viewer binary ────────────────────────────────────────────────────
@@ -344,16 +287,9 @@ set_target_properties(
         OUTPUT_NAME "octovis"
         AUTOMOC ON
         AUTOUIC ON
+        INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR}"
+        BUILD_WITH_INSTALL_RPATH TRUE
 )
-if(APPLE AND MESA_PREFIX)
-    set_target_properties(
-        octovis_viewer
-        PROPERTIES
-            INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR};${MESA_PREFIX}/lib;${MESA_GLU_PREFIX}/lib"
-            BUILD_WITH_INSTALL_RPATH TRUE
-    )
-endif()
-
 # ── Export build tree ────────────────────────────────────────────────────────
 
 configure_package_config_file(

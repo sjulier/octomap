@@ -2086,16 +2086,34 @@ void Camera::draw(bool drawFarPlane, qreal scale) const {
 
   const int farIndex = drawFarPlane ? 1 : 0;
 
-  // Near and (optionally) far plane(s)
-  glBegin(GL_QUADS);
+  // Near and (optionally) far plane(s) - drawn as triangles (GL_QUADS removed
+  // in Apple GL 2.1 Metal / arm64)
   for (int i = farIndex; i >= 0; --i) {
-    glNormal3d(0.0f, 0.0f, (i == 0) ? 1.0f : -1.0f);
-    glVertex3d(points[i].x, points[i].y, -points[i].z);
-    glVertex3d(-points[i].x, points[i].y, -points[i].z);
-    glVertex3d(-points[i].x, -points[i].y, -points[i].z);
-    glVertex3d(points[i].x, -points[i].y, -points[i].z);
+    GLfloat nz = (i == 0) ? 1.0f : -1.0f;
+    // Each quad split into 2 triangles: (TL,BL,BR) and (TL,BR,TR)
+    GLfloat verts[18] = {
+      // Triangle 1
+      (GLfloat) points[i].x,  (GLfloat) points[i].y,  (GLfloat)-points[i].z,
+      (GLfloat)-points[i].x,  (GLfloat) points[i].y,  (GLfloat)-points[i].z,
+      (GLfloat)-points[i].x,  (GLfloat)-points[i].y,  (GLfloat)-points[i].z,
+      // Triangle 2
+      (GLfloat) points[i].x,  (GLfloat) points[i].y,  (GLfloat)-points[i].z,
+      (GLfloat)-points[i].x,  (GLfloat)-points[i].y,  (GLfloat)-points[i].z,
+      (GLfloat) points[i].x,  (GLfloat)-points[i].y,  (GLfloat)-points[i].z,
+    };
+    GLfloat normals[18] = {
+      nz,nz,nz, nz,nz,nz, nz,nz,nz,
+      nz,nz,nz, nz,nz,nz, nz,nz,nz,
+    };
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glEnableClientState(GL_NORMAL_ARRAY);
+    glNormal3f(0.0f, 0.0f, nz);
+    glVertexPointer(3, GL_FLOAT, 0, verts);
+    glNormalPointer(GL_FLOAT, 0, normals);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glDisableClientState(GL_NORMAL_ARRAY);
+    glDisableClientState(GL_VERTEX_ARRAY);
   }
-  glEnd();
 
   // Up arrow
   const qreal arrowHeight = 1.5 * points[0].y;
@@ -2104,48 +2122,76 @@ void Camera::draw(bool drawFarPlane, qreal scale) const {
   const qreal baseHalfWidth = 0.3 * points[0].x;
 
   glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-  // Base
-  glBegin(GL_QUADS);
-  glVertex3d(-baseHalfWidth, points[0].y, -points[0].z);
-  glVertex3d(baseHalfWidth, points[0].y, -points[0].z);
-  glVertex3d(baseHalfWidth, baseHeight, -points[0].z);
-  glVertex3d(-baseHalfWidth, baseHeight, -points[0].z);
-  glEnd();
 
-  // Arrow
-  glBegin(GL_TRIANGLES);
-  glVertex3d(0.0, arrowHeight, -points[0].z);
-  glVertex3d(-arrowHalfWidth, baseHeight, -points[0].z);
-  glVertex3d(arrowHalfWidth, baseHeight, -points[0].z);
-  glEnd();
+  // Base (quad -> 2 triangles)
+  {
+    GLfloat verts[18] = {
+      // Triangle 1
+      (GLfloat)-baseHalfWidth, (GLfloat) points[0].y,  (GLfloat)-points[0].z,
+      (GLfloat) baseHalfWidth, (GLfloat) points[0].y,  (GLfloat)-points[0].z,
+      (GLfloat) baseHalfWidth, (GLfloat) baseHeight,    (GLfloat)-points[0].z,
+      // Triangle 2
+      (GLfloat)-baseHalfWidth, (GLfloat) points[0].y,  (GLfloat)-points[0].z,
+      (GLfloat) baseHalfWidth, (GLfloat) baseHeight,    (GLfloat)-points[0].z,
+      (GLfloat)-baseHalfWidth, (GLfloat) baseHeight,    (GLfloat)-points[0].z,
+    };
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, verts);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glDisableClientState(GL_VERTEX_ARRAY);
+  }
+
+  // Arrow head (triangle)
+  {
+    GLfloat verts[9] = {
+      0.0f,                    (GLfloat) arrowHeight,   (GLfloat)-points[0].z,
+      (GLfloat)-arrowHalfWidth,(GLfloat) baseHeight,    (GLfloat)-points[0].z,
+      (GLfloat) arrowHalfWidth,(GLfloat) baseHeight,    (GLfloat)-points[0].z,
+    };
+    glEnableClientState(GL_VERTEX_ARRAY);
+    glVertexPointer(3, GL_FLOAT, 0, verts);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glDisableClientState(GL_VERTEX_ARRAY);
+  }
 
   // Frustum lines
   switch (type()) {
   case Camera::PERSPECTIVE:
-    glBegin(GL_LINES);
-    glVertex3d(0.0, 0.0, 0.0);
-    glVertex3d(points[farIndex].x, points[farIndex].y, -points[farIndex].z);
-    glVertex3d(0.0, 0.0, 0.0);
-    glVertex3d(-points[farIndex].x, points[farIndex].y, -points[farIndex].z);
-    glVertex3d(0.0, 0.0, 0.0);
-    glVertex3d(-points[farIndex].x, -points[farIndex].y, -points[farIndex].z);
-    glVertex3d(0.0, 0.0, 0.0);
-    glVertex3d(points[farIndex].x, -points[farIndex].y, -points[farIndex].z);
-    glEnd();
+    {
+      GLfloat verts[24] = {
+        0.0f, 0.0f, 0.0f,
+        (GLfloat) points[farIndex].x,  (GLfloat) points[farIndex].y, (GLfloat)-points[farIndex].z,
+        0.0f, 0.0f, 0.0f,
+        (GLfloat)-points[farIndex].x,  (GLfloat) points[farIndex].y, (GLfloat)-points[farIndex].z,
+        0.0f, 0.0f, 0.0f,
+        (GLfloat)-points[farIndex].x, (GLfloat)-points[farIndex].y,  (GLfloat)-points[farIndex].z,
+        0.0f, 0.0f, 0.0f,
+        (GLfloat) points[farIndex].x, (GLfloat)-points[farIndex].y,  (GLfloat)-points[farIndex].z,
+      };
+      glEnableClientState(GL_VERTEX_ARRAY);
+      glVertexPointer(3, GL_FLOAT, 0, verts);
+      glDrawArrays(GL_LINES, 0, 8);
+      glDisableClientState(GL_VERTEX_ARRAY);
+    }
     break;
   case Camera::ORTHOGRAPHIC:
     if (drawFarPlane) {
-      glBegin(GL_LINES);
-      glVertex3d(points[0].x, points[0].y, -points[0].z);
-      glVertex3d(points[1].x, points[1].y, -points[1].z);
-      glVertex3d(-points[0].x, points[0].y, -points[0].z);
-      glVertex3d(-points[1].x, points[1].y, -points[1].z);
-      glVertex3d(-points[0].x, -points[0].y, -points[0].z);
-      glVertex3d(-points[1].x, -points[1].y, -points[1].z);
-      glVertex3d(points[0].x, -points[0].y, -points[0].z);
-      glVertex3d(points[1].x, -points[1].y, -points[1].z);
-      glEnd();
+      GLfloat verts[24] = {
+        (GLfloat) points[0].x,  (GLfloat) points[0].y,  (GLfloat)-points[0].z,
+        (GLfloat) points[1].x,  (GLfloat) points[1].y,  (GLfloat)-points[1].z,
+        (GLfloat)-points[0].x,  (GLfloat) points[0].y,  (GLfloat)-points[0].z,
+        (GLfloat)-points[1].x,  (GLfloat) points[1].y,  (GLfloat)-points[1].z,
+        (GLfloat)-points[0].x, (GLfloat)-points[0].y,   (GLfloat)-points[0].z,
+        (GLfloat)-points[1].x, (GLfloat)-points[1].y,   (GLfloat)-points[1].z,
+        (GLfloat) points[0].x, (GLfloat)-points[0].y,   (GLfloat)-points[0].z,
+        (GLfloat) points[1].x, (GLfloat)-points[1].y,   (GLfloat)-points[1].z,
+      };
+      glEnableClientState(GL_VERTEX_ARRAY);
+      glVertexPointer(3, GL_FLOAT, 0, verts);
+      glDrawArrays(GL_LINES, 0, 8);
+      glDisableClientState(GL_VERTEX_ARRAY);
     }
+    break;
   }
 
   glPopMatrix();
