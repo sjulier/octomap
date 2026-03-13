@@ -4,6 +4,7 @@ project(
     VERSION 1.10.0
     LANGUAGES CXX
 )
+
 if(NOT DEFINED OCTOVIS_BUILD_OPTIONAL)
     set(OCTOVIS_BUILD_OPTIONAL FALSE)
 endif()
@@ -13,9 +14,7 @@ set(OCTOVIS_USE_QT_VERSION
     CACHE STRING "choose which Qt version to use"
 )
 set_property(CACHE OCTOVIS_USE_QT_VERSION PROPERTY STRINGS "auto" "5" "6")
-message(
-    STATUS "OCTOVIS_USE_QT_VERSION set to \"${OCTOVIS_USE_QT_VERSION}\""
-)
+message(STATUS "OCTOVIS_USE_QT_VERSION set to \"${OCTOVIS_USE_QT_VERSION}\"")
 
 set(OCTOVIS_USE_QGLVIEWER
     "auto"
@@ -27,6 +26,7 @@ set_property(
 message(STATUS "OCTOVIS_USE_QGLVIEWER set to \"${OCTOVIS_USE_QGLVIEWER}\"")
 
 include(CMakePackageConfigHelpers)
+include(CTest)
 include(GNUInstallDirs)
 
 # version (e.g. for packaging)
@@ -36,13 +36,10 @@ set(OCTOVIS_PATCH_VERSION ${PROJECT_VERSION_PATCH})
 set(OCTOVIS_VERSION ${PROJECT_VERSION})
 set(OCTOVIS_SOVERSION "${OCTOVIS_MAJOR_VERSION}.${OCTOVIS_MINOR_VERSION}")
 
-include(CTest)
-include(GNUInstallDirs)
-
 set(CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/CMakeModules")
 include(CompilerSettings)
 
-if (OCTOVIS_BUILD_OPTIONAL)
+if(OCTOVIS_BUILD_OPTIONAL)
     set(_required)
 else()
     set(_required REQUIRED)
@@ -52,7 +49,54 @@ endif()
 if(NOT TARGET octomap::octomap)
     find_package(octomap "${OCTOVIS_VERSION}" ${_required})
 endif()
-find_package(OpenGL ${_required})
+
+# On macOS, Apple's OpenGL framework omits legacy symbols (glBegin etc.) that
+# QGLViewer requires. If Mesa is available via Homebrew, use it instead.
+if(APPLE)
+    find_program(_BREW brew)
+    if(_BREW)
+        execute_process(
+            COMMAND ${_BREW} --prefix mesa
+            OUTPUT_VARIABLE MESA_PREFIX
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+        execute_process(
+            COMMAND ${_BREW} --prefix mesa-glu
+            OUTPUT_VARIABLE MESA_GLU_PREFIX
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            ERROR_QUIET
+        )
+    endif()
+    if(MESA_PREFIX AND EXISTS "${MESA_PREFIX}/lib/libGL.dylib")
+        message(STATUS "macOS: using Mesa GL from ${MESA_PREFIX}")
+        add_library(OpenGL::GL SHARED IMPORTED)
+        set_target_properties(
+            OpenGL::GL
+            PROPERTIES
+                IMPORTED_LOCATION "${MESA_PREFIX}/lib/libGL.dylib"
+                INTERFACE_INCLUDE_DIRECTORIES "${MESA_PREFIX}/include"
+        )
+        add_library(OpenGL::GLU SHARED IMPORTED)
+        set_target_properties(
+            OpenGL::GLU
+            PROPERTIES
+                IMPORTED_LOCATION "${MESA_GLU_PREFIX}/lib/libGLU.1.dylib"
+                INTERFACE_INCLUDE_DIRECTORIES "${MESA_GLU_PREFIX}/include"
+        )
+        set(OpenGL_FOUND TRUE)
+    else()
+        message(
+            WARNING
+                "macOS: Mesa not found via Homebrew, falling back to system "
+                "OpenGL (legacy GL symbols such as glBegin may be missing)"
+        )
+        find_package(OpenGL ${_required})
+    endif()
+else()
+    find_package(OpenGL ${_required})
+endif()
+
 set(OCTOVIS_FIND_DEPENDENCIES
     "include(CMakeFindDependencyMacro)\nfind_dependency(octomap ${OCTOVIS_VERSION})\nfind_dependency(OpenGL)\n"
 )
@@ -63,6 +107,7 @@ if(NOT OCTOVIS_USE_QT_VERSION STREQUAL "auto")
 else()
     unset(QGLViewer_USE_QT_VERSION)
 endif()
+
 if(OCTOVIS_USE_QGLVIEWER STREQUAL "installed")
     find_package(QGLViewer ${_required})
     if(NOT QGLViewer_FOUND)
@@ -77,6 +122,7 @@ elseif(NOT OCTOVIS_USE_QGLVIEWER STREQUAL "vendored")
             "OCTOVIS_USE_QGLVIEWER must be one of \"auto\", \"installed\", \"vendored\""
     )
 endif()
+
 if(QGLViewer_FOUND AND QGLViewer_QT_VERSION)
     set(OCTOVIS_QT_VERSION "${QGLViewer_QT_VERSION}")
 elseif(NOT OCTOVIS_USE_QT_VERSION STREQUAL "auto")
@@ -92,26 +138,28 @@ if(NOT DEFINED OCTOVIS_QT_VERSION OR OCTOVIS_QT_VERSION STREQUAL "5")
         set(OCTOVIS_FIND_DEPENDENCIES
             "${OCTOVIS_FIND_DEPENDENCIES}\nfind_dependency(Qt5 ${Qt5_VERSION} COMPONENTS Core Gui OpenGL Widgets Xml)"
         )
-        set(OCTOVIS_QT_TARGETS Qt5::Core Qt5::Gui Qt5::OpenGL Qt5::Widgets
-                               Qt5::Xml
+        set(OCTOVIS_QT_TARGETS
+            Qt5::Core Qt5::Gui Qt5::OpenGL Qt5::Widgets Qt5::Xml
         )
         message(STATUS "octovis building with Qt ${Qt5_VERSION}")
         set(OCTOVIS_QT_VERSION "5")
     endif()
 endif()
+
 if(NOT DEFINED OCTOVIS_QT_VERSION OR OCTOVIS_QT_VERSION STREQUAL "6")
     find_package(Qt6 ${_required} COMPONENTS Core Gui OpenGLWidgets Widgets Xml)
     if(Qt6_FOUND)
         set(OCTOVIS_FIND_DEPENDENCIES
             "${OCTOVIS_FIND_DEPENDENCIES}\nfind_dependency(Qt6 ${Qt6_VERSION} COMPONENTS Core Gui OpenGLWidgets Widgets Xml)"
         )
-        set(OCTOVIS_QT_TARGETS Qt6::Core Qt6::Gui Qt6::OpenGLWidgets
-                               Qt6::Widgets Qt6::Xml
+        set(OCTOVIS_QT_TARGETS
+            Qt6::Core Qt6::Gui Qt6::OpenGLWidgets Qt6::Widgets Qt6::Xml
         )
         message(STATUS "octovis building with Qt ${Qt6_VERSION}")
         set(OCTOVIS_QT_VERSION "6")
     endif()
 endif()
+
 if(NOT OCTOVIS_QT_TARGETS)
     if(OCTOVIS_BUILD_OPTIONAL)
         message(WARNING "No Qt library found; skipping octovis build")
@@ -121,12 +169,16 @@ if(NOT OCTOVIS_QT_TARGETS)
     endif()
 endif()
 
-foreach(target IN ITEMS octomap::octomap OpenGL::GL OpenGL::GLU ${OCTOVIS_QT_TARGETS})
+foreach(target IN ITEMS octomap::octomap OpenGL::GL OpenGL::GLU
+                        ${OCTOVIS_QT_TARGETS}
+)
     if(NOT TARGET ${target})
         message(WARNING "Missing target ${target}; skipping octovis build")
         return()
     endif()
 endforeach()
+
+# ── QGLViewer ────────────────────────────────────────────────────────────────
 
 if(TARGET QGLViewer::QGLViewer)
     message(STATUS "octovis building with installed QGLViewer library")
@@ -134,8 +186,9 @@ if(TARGET QGLViewer::QGLViewer)
     set(OCTOVIS_FIND_DEPENDENCIES
         "${OCTOVIS_FIND_DEPENDENCIES}\nlist(APPEND CMAKE_MODULE_PATH \"\${CMAKE_CURRENT_LIST_DIR}/Modules\")\nset(QGLViewer_USE_QT_VERSION ${OCTOVIS_QT_VERSION})\nfind_dependency(QGLViewer)"
     )
-    install(FILES CMakeModules/FindQGLViewer.cmake
-            DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/octovis/Modules"
+    install(
+        FILES CMakeModules/FindQGLViewer.cmake
+        DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/octovis/Modules"
     )
 else()
     message(STATUS "octovis building with vendored QGLViewer library")
@@ -175,33 +228,39 @@ else()
             $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
             $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}/octovis/qglviewer>
     )
-    target_link_libraries(QGLViewer PUBLIC ${OCTOVIS_QT_TARGETS})
+    target_link_libraries(
+        QGLViewer PUBLIC ${OCTOVIS_QT_TARGETS} OpenGL::GL OpenGL::GLU
+    )
     set_target_properties(
         QGLViewer
-        PROPERTIES VERSION "${OCTOVIS_VERSION}"
-                   SOVERSION "${OCTOVIS_SOVERSION}"
-                   OUTPUT_NAME "octovis_qglviewer"
-                   AUTOMOC ON
-                   AUTOUIC ON
+        PROPERTIES
+            VERSION "${OCTOVIS_VERSION}"
+            SOVERSION "${OCTOVIS_SOVERSION}"
+            OUTPUT_NAME "octovis_qglviewer"
+            AUTOMOC ON
+            AUTOUIC ON
     )
     install(
         DIRECTORY src/extern/QGLViewer/
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/octovis/qglviewer"
-        FILES_MATCHING
-        PATTERN "*.h"
+        FILES_MATCHING PATTERN "*.h"
     )
     install(TARGETS QGLViewer EXPORT octovis-targets)
     set(QGLVIEWER_TARGET QGLViewer)
     add_library(octomap::QGLViewer ALIAS QGLViewer)
 endif()
 
-# octovis library
+# ── octovis library ──────────────────────────────────────────────────────────
+
 set(octovis_SOURCES
-    src/SceneObject.cpp src/PointcloudDrawer.cpp src/OcTreeDrawer.cpp
-    src/SelectionBox.cpp src/TrajectoryDrawer.cpp src/ColorOcTreeDrawer.cpp
+    src/ColorOcTreeDrawer.cpp
+    src/OcTreeDrawer.cpp
+    src/PointcloudDrawer.cpp
+    src/SceneObject.cpp
+    src/SelectionBox.cpp
+    src/TrajectoryDrawer.cpp
 )
 set(octovis_HEADERS
-    include/octovis/CameraFollowMode.h
     include/octovis/ColorOcTreeDrawer.h
     include/octovis/OcTreeDrawer.h
     include/octovis/OcTreeRecord.h
@@ -209,15 +268,6 @@ set(octovis_HEADERS
     include/octovis/SceneObject.h
     include/octovis/SelectionBox.h
     include/octovis/TrajectoryDrawer.h
-    include/octovis/ViewerGui.h
-    include/octovis/ViewerGui.ui
-    include/octovis/ViewerSettings.h
-    include/octovis/ViewerSettings.ui
-    include/octovis/ViewerSettingsPanel.h
-    include/octovis/ViewerSettingsPanel.ui
-    include/octovis/ViewerSettingsPanelCamera.h
-    include/octovis/ViewerSettingsPanelCamera.ui
-    include/octovis/ViewerWidget.h
 )
 add_library(octovis ${octovis_HEADERS} ${octovis_SOURCES})
 target_compile_features(octovis PUBLIC cxx_std_11)
@@ -229,36 +279,62 @@ target_include_directories(
         $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_link_libraries(
-    octovis PUBLIC octomap::octomap ${QGLVIEWER_TARGET} ${OCTOVIS_QT_TARGETS}
-                   OpenGL::GL OpenGL::GLU
+    octovis PUBLIC
+        octomap::octomap
+        ${QGLVIEWER_TARGET}
+        ${OCTOVIS_QT_TARGETS}
+        OpenGL::GL
+        OpenGL::GLU
 )
 set_target_properties(
     octovis
-    PROPERTIES VERSION "${OCTOVIS_VERSION}"
-               SOVERSION "${OCTOVIS_SOVERSION}"
-               AUTOMOC ON
-               AUTOUIC ON
-               AUTOGEN_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/octovis_autogen"
+    PROPERTIES
+        VERSION "${OCTOVIS_VERSION}"
+        SOVERSION "${OCTOVIS_SOVERSION}"
+        AUTOMOC ON
+        AUTOUIC ON
+        AUTOGEN_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/octovis_autogen"
 )
 add_library(octomap::octovis ALIAS octovis)
 
-# sources for viewer binary
+# ── octovis viewer binary ────────────────────────────────────────────────────
+
+# These sources contain Q_OBJECT macros and .ui files so they need AUTOMOC/AUTOUIC.
+# They are part of the viewer binary, not the reusable octovis library.
 set(octovis_viewer_SOURCES
     src/main.cpp
+    src/CameraFollowMode.cpp
     src/ViewerGui.cpp
-    src/ViewerWidget.cpp
     src/ViewerSettings.cpp
     src/ViewerSettingsPanel.cpp
     src/ViewerSettingsPanelCamera.cpp
-    src/CameraFollowMode.cpp
+    src/ViewerWidget.cpp
+    include/octovis/CameraFollowMode.h
+    include/octovis/ViewerGui.h
+    include/octovis/ViewerGui.ui
+    include/octovis/ViewerSettings.h
+    include/octovis/ViewerSettings.ui
+    include/octovis/ViewerSettingsPanel.h
+    include/octovis/ViewerSettingsPanel.ui
+    include/octovis/ViewerSettingsPanelCamera.h
+    include/octovis/ViewerSettingsPanelCamera.ui
+    include/octovis/ViewerWidget.h
 )
 add_executable(octovis_viewer ${octovis_viewer_SOURCES})
 target_link_libraries(octovis_viewer PRIVATE octovis)
-set_target_properties(octovis_viewer PROPERTIES OUTPUT_NAME "octovis")
+set_target_properties(
+    octovis_viewer
+    PROPERTIES
+        OUTPUT_NAME "octovis"
+        AUTOMOC ON
+        AUTOUIC ON
+)
 
-# Export build tree
+# ── Export build tree ────────────────────────────────────────────────────────
+
 configure_package_config_file(
-    octovis-config.cmake.in "${CMAKE_CURRENT_BINARY_DIR}/octovis-config.cmake"
+    octovis-config.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/octovis-config.cmake"
     INSTALL_DESTINATION "${CMAKE_CURRENT_BINARY_DIR}"
 )
 write_basic_package_version_file(
@@ -281,10 +357,12 @@ if(TARGET QGLViewer)
 endif()
 export(PACKAGE octovis)
 
-# Installation
+# ── Installation ─────────────────────────────────────────────────────────────
+
 install(DIRECTORY include/ DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
-install(DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/octovis_autogen/include/"
-        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/octovis"
+install(
+    DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/octovis_autogen/include/"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/octovis"
 )
 install(TARGETS octovis_viewer)
 install(TARGETS octovis EXPORT octovis-targets)
@@ -293,7 +371,6 @@ install(
     NAMESPACE octomap::
     DESTINATION "${CMAKE_INSTALL_LIBDIR}/cmake/octovis"
 )
-
 configure_package_config_file(
     octovis-config.cmake.in
     "${CMAKE_CURRENT_BINARY_DIR}/InstallFiles/octovis-config.cmake"
