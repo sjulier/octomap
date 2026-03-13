@@ -240,6 +240,14 @@ else()
             AUTOMOC ON
             AUTOUIC ON
     )
+    if(APPLE AND MESA_PREFIX)
+        set_target_properties(
+            QGLViewer
+            PROPERTIES
+                INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR};${MESA_PREFIX}/lib;${MESA_GLU_PREFIX}/lib"
+                BUILD_WITH_INSTALL_RPATH TRUE
+        )
+    endif()
     install(
         DIRECTORY src/extern/QGLViewer/
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/octovis/qglviewer"
@@ -295,6 +303,14 @@ set_target_properties(
         AUTOUIC ON
         AUTOGEN_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/octovis_autogen"
 )
+if(APPLE AND MESA_PREFIX)
+    set_target_properties(
+        octovis
+        PROPERTIES
+            INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR};${MESA_PREFIX}/lib;${MESA_GLU_PREFIX}/lib"
+            BUILD_WITH_INSTALL_RPATH TRUE
+    )
+endif()
 add_library(octomap::octovis ALIAS octovis)
 
 # ── octovis viewer binary ────────────────────────────────────────────────────
@@ -329,6 +345,14 @@ set_target_properties(
         AUTOMOC ON
         AUTOUIC ON
 )
+if(APPLE AND MESA_PREFIX)
+    set_target_properties(
+        octovis_viewer
+        PROPERTIES
+            INSTALL_RPATH "${CMAKE_INSTALL_PREFIX}/${CMAKE_INSTALL_LIBDIR};${MESA_PREFIX}/lib;${MESA_GLU_PREFIX}/lib"
+            BUILD_WITH_INSTALL_RPATH TRUE
+    )
+endif()
 
 # ── Export build tree ────────────────────────────────────────────────────────
 
